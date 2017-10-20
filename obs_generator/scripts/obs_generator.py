@@ -5,7 +5,11 @@ Convert a signal rate seed image into a signal ramp.
 Add cosmic rays, poisson noise, etc.
 '''
 
-import unlinearize
+import sys, os
+import yaml
+import numpy as np
+from astropy.io import fits, ascii
+from . import unlinearize
 
 
 class Observation():
@@ -23,6 +27,12 @@ class Observation():
 
         
     def run(self):
+        # Read in the parameter file
+        self.readParameterFile()
+
+        # Expand all paths in order to be more condor-friendly
+        self.fullPaths()
+        
         # Get the input dark if a filename is supplied
         if type(self.linDark) == type('string'):
             self.linDark = self.readDarkFile(self.linDark)
@@ -66,20 +76,17 @@ class Observation():
         # to the ramp of simulated sources + cosmic rays
         # (the dark current ramp already has these effects)
         simexp = self.add_flatfield_effects(simexp)
-        simzero =
-        self.add_flatfield_effects(np.expand_dims(simzero,axis=1))[:,0,:,:]
+        simzero = self.add_flatfield_effects(np.expand_dims(simzero,axis=1))[:,0,:,:]
 
         # Mask any reference pixels
         simexp,simzero = self.maskRefPix(simexp,simzero)
         
         # Add the simulated source ramp to the dark ramp
-        lin_outramp,lin_zeroframe =
-        self.addSyntheticToDark(simexp,self.linDark,syn_zeroframe=simzero)
+        lin_outramp,lin_zeroframe = self.addSyntheticToDark(simexp,self.linDark,syn_zeroframe=simzero)
         
         # Add other detector effects (IPC/Crosstalk/PAM)
         lin_outramp = self.add_detector_effects(lin_outramp)
-        lin_zeroframe =
-        self.add_detector_effects(np.expand_dims(lin_zeroframe,axis=1))[:,0,:,:]
+        lin_zeroframe = self.add_detector_effects(np.expand_dims(lin_zeroframe,axis=1))[:,0,:,:]
 
         # Read in non-linearity correction coefficients. We need these
         # regardless of whether we are saving the linearized data or going
@@ -89,7 +96,12 @@ class Observation():
         # Save the ramp if requested. This is the linear ramp,
         # ready to go into the Jump step of the pipeline
         if 'linear' in self.params['Output']['datatype'].lower():
-
+            # Output filename: append 'linear'
+            try:
+                linearrampfile = self.params['Output']['file'].replace('uncal','linear')
+            except:
+                linearrampfile = self.params['Output']['file'].replace('.fits','_linear.fits')
+                
             # Create a linearized saturation map
             lin_satmap = self.apply_lincoeff(self.satmap,nonlin)
 
@@ -101,10 +113,10 @@ class Observation():
             err,groupdq = self.create_other_extensions()
             
             if self.params['Inst']['use_JWST_pipeline']:
-                self.saveDMS(lin_outramp,lin_zeroframe,linearrampfile,mod='ramp'
+                self.saveDMS(lin_outramp,lin_zeroframe,linearrampfile,mod='ramp',
                              err_ext = err, group_dq = groupdq, pixel_dq = pixeldq)
             else:
-                self.savefits(lin_outramp,lin_zeroframe,linearrampfile,mod='ramp'
+                self.savefits(lin_outramp,lin_zeroframe,linearrampfile,mod='ramp',
                               err_ext = err, group_dq = groupdq, pixel_dq = pixeldq)
 
             self.add_wcs(linearrampfile)
@@ -142,7 +154,7 @@ class Observation():
                 raw_zeroframe[toohigh] = 65535
             
                 # Save the raw ramp
-                if self.params[][] == 'DMS':
+                if self.params['Inst']['use_JWST_pipline']:
                     self.saveDMS(lin_outramp,lin_zeroframe,rawrampfile,mod='1b')
                 else:
                     self.savefits(lin_outramp,lin_zeroframe,rawrampfile,mod='1b')
@@ -153,7 +165,48 @@ class Observation():
                 print("the dark current data object. Quitting.")
                 sys.exit()
 
+    def fullPaths(self):
+        # Expand all input paths to be full paths
+        # This is to allow for easier Condor-ization of
+        # many runs
+        pathdict = {'Reffiles':['dark','linearized_darkfile',
+                                'hotpixmask','superbias',
+                                'subarray_defs','readpattdefs',
+                                'linearity','saturation','gain',
+                                'phot','pixelflat','illumflat',
+                                'astrometric','distortion_coeffs',
+                                'ipc','crosstalk','occult',
+                                'filtpupilcombo','pixelAreaMap',
+                                'flux_cal'],
+                    'cosmicRay':['path'],
+                    'simSignals':['pointsource','psfpath',
+                                  'galaxyListFile','extended',
+                                  'movingTargetList',
+                                  'movingTargetSersic',
+                                  'movingTargetExtended',
+                                  'movingTargetToTrack'],
+                    'newRamp':['dq_configfile','sat_configfile',
+                               'superbias_configfile',
+                               'refpix_configfile',
+                               'linear_configfile'],
+                    'Output':['file','directory']}
 
+        for key1 in pathdict:
+            for key2 in pathdict[key1]:
+                if self.params[key1][key2].lower() != 'none':
+                    self.params[key1][key2] = os.path.abspath(self.params[key1][key2])
+
+                
+    def readParameterFile(self):
+        # Read in the parameter file
+        try:
+            with open(self.paramfile,'r') as infile:
+                self.params = yaml.load(infile)
+        except:
+            print("WARNING: unable to open {}".format(self.paramfile))
+            sys.exit()
+        
+                
     def inputChecks(self):
         # Make sure the input dark has a readout pattern
         # that is compatible with the requested output
@@ -214,8 +267,6 @@ class Observation():
     def create_other_extensions(self,data):
         # If the linearized version of the file is to be saved, we
         # need to create the error, pixel dq, and group dq extensions
-        groupdq = use dq init file
-        pixeldq = saturation flagging
 
         # error extension - keep it simple. sqrt of signal
         toolow = data < 0.
@@ -536,10 +587,10 @@ class Observation():
             print("Zeroframe not present. Setting to all zeros")
             numint,numgroup,ys,xs = ramp.shape
 
-        #place the arrays in the correct extensions of the HDUList
-        using int16 below causes problems! anything set to 65535
-        gets reset to -1, which screws up saturation flagging
-        I think the answer is to save as uint16...
+        # Place the arrays in the correct extensions of the HDUList
+        #using int16 below causes problems! anything set to 65535
+        #gets reset to -1, which screws up saturation flagging
+        #I think the answer is to save as uint16...
 
         if mod == 'ramp':
             ex0 = fits.PrimaryHDU()
@@ -1040,8 +1091,8 @@ class Observation():
             xe = xd
             ys = 0
             ye = yd
-            if self.params['Output']['grism_source_image']:
-                xs,xe,ys,ye = self.extractFromGrismImage(exposure[0,0,:,:])
+            #if self.params['Output']['grism_source_image']:
+            #    xs,xe,ys,ye = self.extractFromGrismImage(exposure[0,0,:,:])
             for integ in range(ints):
                 for group in range(groups):
                     xtinput = exposure[integ,group,ys:ye,xs:xe]
@@ -1073,8 +1124,10 @@ class Observation():
     def extractFromGrismImage(self,array):
         # Return the indexes that will allow you to extract the nominal output
         # image from the extra-large grism source image
+        print("we shouldn't need to use this function")
+        sys.exit()
         arrayshape = array.shape
-        fixthisline!nominaly,nominalx = self.dark.data[0,0,:,:].shape
+        nominaly,nominalx = self.dark.data[0,0,:,:].shape
         diffx = (arrayshape[1] - nominalx) / 2
         diffy = (arrayshape[0] - nominaly) / 2
         x1 = diffx
@@ -1592,6 +1645,10 @@ class Observation():
             print("WARNING: instrument not set to 'NIRCam'. Resetting.")
             self.params['Inst']['instrument'] = 'NIRCam'
 
+        # check output filename - make sure it's fits
+        if self.params['Output']['file'][-5:].lower() != '.fits':
+            self.params['Output']['file'] += '.fits'
+            
         # check mode: 
         possibleModes = ['imaging','wfss']
         self.params['Inst']['mode'] = self.params['Inst']['mode'].lower()
@@ -1649,69 +1706,39 @@ class Observation():
         # indicating the step should be skipped. Create a dictionary of steps 
         # and populate with True or False
         self.runStep = {}
-        self.runStep['superbias'] =
-                  self.checkRunStep(self.params['Reffiles']['superbias'])
-        self.runStep['nonlin'] =
-                  self.checkRunStep(self.params['Reffiles']['linearity'])
-        self.runStep['gain'] =
-                  self.checkRunStep(self.params['Reffiles']['gain'])
-        self.runStep['phot'] =
-                  self.checkRunStep(self.params['Reffiles']['phot'])
-        self.runStep['pixelflat'] =
-                  self.checkRunStep(self.params['Reffiles']['pixelflat'])
-        self.runStep['illuminationflat'] =
-                  self.checkRunStep(self.params['Reffiles']['illumflat'])
-        self.runStep['astrometric'] =
-                  self.checkRunStep(self.params['Reffiles']['astrometric'])
-        self.runStep['distortion_coeffs'] =
-                  self.checkRunStep(self.params['Reffiles']['distortion_coeffs'])
-        self.runStep['ipc'] =
-                  self.checkRunStep(self.params['Reffiles']['ipc'])
-        self.runStep['crosstalk'] =
-                  self.checkRunStep(self.params['Reffiles']['crosstalk'])
-        self.runStep['occult'] =
-                  self.checkRunStep(self.params['Reffiles']['occult'])
-        self.runStep['pointsource'] =
-                  self.checkRunStep(self.params['simSignals']['pointsource'])
-        self.runStep['galaxies'] =
-                  self.checkRunStep(self.params['simSignals']['galaxyListFile'])
-        self.runStep['extendedsource'] =
-                  self.checkRunStep(self.params['simSignals']['extended'])
-        self.runStep['movingTargets'] =
-                  self.checkRunStep(self.params['simSignals']['movingTargetList'])
-        self.runStep['movingTargetsSersic'] =
-                  self.checkRunStep(self.params['simSignals']['movingTargetSersic'])
-        self.runStep['movingTargetsExtended'] =
-                  self.checkRunStep(self.params['simSignals']['movingTargetExtended'])
-        self.runStep['MT_tracking'] =
-                  self.checkRunStep(self.params['simSignals']['movingTargetToTrack'])
-        self.runStep['zodiacal'] =
-                  self.checkRunStep(self.params['simSignals']['zodiacal'])
-        self.runStep['scattered'] =
-                  self.checkRunStep(self.params['simSignals']['scattered'])
-        self.runStep['linearity'] =
-                  self.checkRunStep(self.params['Reffiles']['linearity'])
-        self.runStep['cosmicray'] =
-                  self.checkRunStep(self.params['cosmicRay']['path'])
-        self.runStep['saturation_lin_limit'] =
-                  self.checkRunStep(self.params['Reffiles']['saturation'])
-        self.runStep['fwpw'] =
-                  self.checkRunStep(self.params['Reffiles']['filtpupilcombo'])
-        self.runStep['linearized_darkfile'] =
-                  self.checkRunStep(self.params['Reffiles']['linearized_darkfile'])
-        self.runStep['hotpixfile'] =
-                  self.checkRunStep(self.params['Reffiles']['hotpixmask'])
-        self.runStep['pixelAreaMap'] =
-                  self.checkRunStep(self.params['Reffiles']['pixelAreaMap'])
+        self.runStep['superbias'] = self.checkRunStep(self.params['Reffiles']['superbias'])
+        self.runStep['nonlin'] = self.checkRunStep(self.params['Reffiles']['linearity'])
+        self.runStep['gain'] = self.checkRunStep(self.params['Reffiles']['gain'])
+        self.runStep['phot'] = self.checkRunStep(self.params['Reffiles']['phot'])
+        self.runStep['pixelflat'] = self.checkRunStep(self.params['Reffiles']['pixelflat'])
+        self.runStep['illuminationflat'] = self.checkRunStep(self.params['Reffiles']['illumflat'])
+        self.runStep['astrometric'] = self.checkRunStep(self.params['Reffiles']['astrometric'])
+        self.runStep['distortion_coeffs'] = self.checkRunStep(self.params['Reffiles']['distortion_coeffs'])
+        self.runStep['ipc'] = self.checkRunStep(self.params['Reffiles']['ipc'])
+        self.runStep['crosstalk'] = self.checkRunStep(self.params['Reffiles']['crosstalk'])
+        self.runStep['occult'] = self.checkRunStep(self.params['Reffiles']['occult'])
+        self.runStep['pointsource'] = self.checkRunStep(self.params['simSignals']['pointsource'])
+        self.runStep['galaxies'] = self.checkRunStep(self.params['simSignals']['galaxyListFile'])
+        self.runStep['extendedsource'] = self.checkRunStep(self.params['simSignals']['extended'])
+        self.runStep['movingTargets'] = self.checkRunStep(self.params['simSignals']['movingTargetList'])
+        self.runStep['movingTargetsSersic'] = self.checkRunStep(self.params['simSignals']['movingTargetSersic'])
+        self.runStep['movingTargetsExtended'] = self.checkRunStep(self.params['simSignals']['movingTargetExtended'])
+        self.runStep['MT_tracking'] = self.checkRunStep(self.params['simSignals']['movingTargetToTrack'])
+        self.runStep['zodiacal'] = self.checkRunStep(self.params['simSignals']['zodiacal'])
+        self.runStep['scattered'] = self.checkRunStep(self.params['simSignals']['scattered'])
+        self.runStep['linearity'] = self.checkRunStep(self.params['Reffiles']['linearity'])
+        self.runStep['cosmicray'] = self.checkRunStep(self.params['cosmicRay']['path'])
+        self.runStep['saturation_lin_limit'] = self.checkRunStep(self.params['Reffiles']['saturation'])
+        self.runStep['fwpw'] = self.checkRunStep(self.params['Reffiles']['filtpupilcombo'])
+        self.runStep['linearized_darkfile'] = self.checkRunStep(self.params['Reffiles']['linearized_darkfile'])
+        self.runStep['hotpixfile'] = self.checkRunStep(self.params['Reffiles']['hotpixmask'])
+        self.runStep['pixelAreaMap'] = self.checkRunStep(self.params['Reffiles']['pixelAreaMap'])
 
         # NON-LINEARITY
         # Make sure the input accuracy is a float with reasonable bounds
-        self.params['nonlin']['accuracy'] =
-                  self.checkParamVal(self.params['nonlin']['accuracy'],'nlin accuracy',1e-12,1e-6,1e-6)
-        self.params['nonlin']['maxiter'] =
-                  self.checkParamVal(self.params['nonlin']['maxiter'],'nonlin max iterations',5,40,10)
-        self.params['nonlin']['limit'] =
-                  self.checkParamVal(self.params['nonlin']['limit'],'nonlin max value',30000.,1.e6,66000.)
+        self.params['nonlin']['accuracy'] = self.checkParamVal(self.params['nonlin']['accuracy'],'nlin accuracy',1e-12,1e-6,1e-6)
+        self.params['nonlin']['maxiter'] = self.checkParamVal(self.params['nonlin']['maxiter'],'nonlin max iterations',5,40,10)
+        self.params['nonlin']['limit'] = self.checkParamVal(self.params['nonlin']['limit'],'nonlin max value',30000.,1.e6,66000.)
     
         # Make sure the CR random number seed is an integer
         try:
@@ -1724,8 +1751,7 @@ class Observation():
          
         # Also make sure the poisson random number seed is an integer
         try:
-            self.params['simSignals']['poissonseed'] =
-                  int(self.params['simSignals']['poissonseed'])
+            self.params['simSignals']['poissonseed'] = int(self.params['simSignals']['poissonseed'])
         except:
             self.params['simSignals']['poissonseed'] = 815813492
             print(("ERROR: cosmic ray random number generator seed is bad. "
@@ -1738,8 +1764,7 @@ class Observation():
 
         self.x_sci2idl, self.y_sci2idl, self.v2_ref, self.v3_ref,
         self.parity, self.v3yang, self.xsciscale, self.ysciscale,
-        self.v3scixang =
-        self.getDistortionCoefficients(distortionTable,'science','ideal',ap_name)
+        self.v3scixang = self.getDistortionCoefficients(distortionTable,'science','ideal',ap_name)
             
         # Convert the input RA and Dec of the pointing position into floats
         # check to see if the inputs are in decimal units or hh:mm:ss strings
@@ -1747,19 +1772,16 @@ class Observation():
             self.ra = float(self.params['Telescope']['ra'])
             self.dec = float(self.params['Telescope']['dec'])
         except:
-            self.ra,self.dec =
-            self.parseRADec(self.params['Telescope']['ra']
-                            ,self.params['Telescope']['dec'])
+            self.ra,self.dec = self.parseRADec(self.params['Telescope']['ra']
+                                               ,self.params['Telescope']['dec'])
 
-        if abs(self.dec) > 90. or self.ra < 0. or self.ra > 360. or
-        self.ra is None or self.dec is None:
+        if abs(self.dec) > 90. or self.ra < 0. or self.ra > 360. or self.ra is None or self.dec is None:
             print("WARNING: bad requested RA and Dec {} {}".format(self.ra,self.dec))
             sys.exit()
 
         # Make sure the rotation angle is a float
         try:
-            self.params['Telescope']["rotation"] =
-            float(self.params['Telescope']["rotation"])
+            self.params['Telescope']["rotation"] = float(self.params['Telescope']["rotation"])
         except:
             print(("ERROR: bad rotation value {}, setting to zero."
                    .format(self.params['Telescope']["rotation"])))
@@ -1767,14 +1789,10 @@ class Observation():
 
         # Check that the various scaling factors are floats and
         # within a reasonable range
-        self.params['cosmicRay']['scale'] =
-        self.checkParamVal(self.params['cosmicRay']['scale'],'cosmicRay',0,100,1)
-        self.params['simSignals']['extendedscale'] =
-        self.checkParamVal(self.params['simSignals']['extendedscale'],'extendedEmission',0,10000,1)
-        self.params['simSignals']['zodiscale'] =
-        self.checkParamVal(self.params['simSignals']['zodiscale'],'zodi',0,10000,1)
-        self.params['simSignals']['scatteredscale'] =
-        self.checkParamVal(self.params['simSignals']['scatteredscale'],'scatteredLight',0,10000,1)
+        self.params['cosmicRay']['scale'] = self.checkParamVal(self.params['cosmicRay']['scale'],'cosmicRay',0,100,1)
+        self.params['simSignals']['extendedscale'] = self.checkParamVal(self.params['simSignals']['extendedscale'],'extendedEmission',0,10000,1)
+        self.params['simSignals']['zodiscale'] = self.checkParamVal(self.params['simSignals']['zodiscale'],'zodi',0,10000,1)
+        self.params['simSignals']['scatteredscale'] = self.checkParamVal(self.params['simSignals']['scatteredscale'],'scatteredLight',0,10000,1)
 
         # Make sure the requested output format is an allowed value
         if self.params['Output']['format'] not in ['DMS']:
@@ -1864,7 +1882,7 @@ class Observation():
                 print(('match any present in {}. This is not a valid NIRCam '
                        'readout pattern. Quitting.'
                        .format(self.params['Reffiles']['readpattdefs'])))
-                    sys.exit()
+                sys.exit()
 
 
     def setNumAmps(self):
@@ -1892,5 +1910,26 @@ class Observation():
             return value
         else:
             print(("ERROR: {} for {} is not within reasonable bounds. "
-                   "Setting to {}".format(value,typ,default))
+                   "Setting to {}".format(value,typ,default)))
             return default
+
+
+    def add_options(self,parser=None,usage=None):
+        if parser is None:
+            parser = argparse.ArgumentParser(usage=usage,
+                                             description='Simulate JWST ramp')
+        parser.add_argument("paramfile", help = 'File describing the input parameters and instrument settings to use. (YAML format).')
+        parser.add_argument("linDark", help = 'File containing linearized dark ramp.')
+        parser.add_argument("seed", help = 'File containing seed image and segmentation map')     
+        return parser
+
+
+if __name__ == '__main__':
+
+    usagestring = ('USAGE: obs_generator.py inputs.yaml '
+                   'lindark.fits seedimg.fits')
+
+    obs = Observation()
+    parser = obs.add_options(usage = usagestring)
+    args = parser.parse_args(namespace = obs)
+
