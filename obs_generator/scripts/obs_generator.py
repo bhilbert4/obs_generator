@@ -8,7 +8,7 @@ Add cosmic rays, poisson noise, etc.
 import unlinearize
 
 
-class Something():
+class Observation():
     def __init__(self):
         self.linDark = None
         self.seed = None

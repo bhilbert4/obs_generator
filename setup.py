@@ -10,7 +10,7 @@ setup(
     long_description=('A tool to combine a noiseless seed image with a '
                       'dark current ramp in order to produce a simulated'
                       ' NIRCam integration/exposure with realistic '
-                      'detector artifacts.')
+                      'detector artifacts.'),
     author='Bryan Hilbert',
     author_email='hilbert@stsci.edu',
     keywords = ['astronomy'],
