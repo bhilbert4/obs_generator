@@ -7,8 +7,9 @@ input ramp.
 '''
 
 import sys
+import numpy as np
 
-def unlinearize(self,image,coeffs,sat,maxiter=10,accuracy=0.000001,robberto=False
+def unlinearize(image,coeffs,sat,maxiter=10,accuracy=0.000001,robberto=False
                 ,save_accuracy_map=False,accuracy_file='unlinearize_no_convergence.fits'):
     # Insert non-linearity into the linear synthetic sources
 
@@ -24,7 +25,7 @@ def unlinearize(self,image,coeffs,sat,maxiter=10,accuracy=0.000001,robberto=Fals
     # that we can pay attention only to non-saturated pixels in
     # the input linear image. Do this by applying the standard
     # linearity correction to the saturation map
-    lin_satmap = self.nonLinFunc(sat,coeffs,sat)
+    lin_satmap = nonLinFunc(sat,coeffs,sat)
 
     # Find pixels with "good" signals, to have the nonlin applied. 
     # Negative pix or pix with signals above the requested max 
@@ -40,7 +41,7 @@ def unlinearize(self,image,coeffs,sat,maxiter=10,accuracy=0.000001,robberto=Fals
     # Initial run of the nonlin function - when calling the 
     # non-lin function, give the original satmap for the 
     # non-linear signal values
-    val = self.nonLinFunc(image,coeffs,sat)
+    val = nonLinFunc(image,coeffs,sat)
     val[i2]=1.
 
     if robberto:            
@@ -49,13 +50,13 @@ def unlinearize(self,image,coeffs,sat,maxiter=10,accuracy=0.000001,robberto=Fals
         x[i1] = (image[i1]+image[i1]/val[i1]) / 2. 
         while i < maxiter:
             i=i+1
-            val = self.nonLinFunc(x,coeffs,sat)
+            val = nonLinFunc(x,coeffs,sat)
             val[i2]=1.
             dev[i1] = abs(image[i1]/val[i1]-1.)
             inds = np.where(dev[i1] > accuracy)
             if inds[0].size < 1:
                 break
-            val1 = self.nonLinDeriv(x,coeffs,sat)
+            val1 = nonLinDeriv(x,coeffs,sat)
             val1[i2] = 1.
             x[i1] = x[i1] + (image[i1]-val[i1])/val1[i1]
 
@@ -75,7 +76,7 @@ def unlinearize(self,image,coeffs,sat,maxiter=10,accuracy=0.000001,robberto=Fals
     return x
 
 
-def nonLinFunc(self,image,coeffs,limits):
+def nonLinFunc(image,coeffs,limits):
     # Apply linearity correction coefficients
     # to image.
     values = np.copy(image)
@@ -97,7 +98,7 @@ def nonLinFunc(self,image,coeffs,limits):
     return t
 
 
-def nonLinDeriv(self,image,coeffs,limits):
+def nonLinDeriv(image,coeffs,limits):
     # First derivative of non-lin correction
     # function
     values = np.copy(image)
