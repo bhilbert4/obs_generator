@@ -43,6 +43,10 @@ class Observation():
         
         
     def create(self):
+        print('')
+        print("Running observation generator....")
+        print('')
+        
         # Read in the parameter file
         self.readParameterFile()
 
@@ -50,9 +54,12 @@ class Observation():
         self.fullPaths()
         
         # Get the input dark if a filename is supplied
+        if self.linDark is None:
+            self.linDark = self.params['Reffiles']['linearized_darkfile']
         if type(self.linDark) == type('string'):
             print('Reading in dark file')
             self.linDark = self.readDarkFile(self.linDark)
+            
         # Finally, collect information about the detector, which will be needed for astrometry later
         self.detector = self.linDark.header['DETECTOR']
         self.instrument = self.linDark.header['INSTRUME']
@@ -141,10 +148,39 @@ class Observation():
             linearrampfile = os.path.join(self.params['Output']['directory'],linearrampfile)
                 
             # Create a linearized saturation map
-            lin_satmap = self.apply_lincoeff(self.satmap,nonlincoeffs)
+            #lin_satmap = self.apply_lincoeff(self.satmap,nonlincoeffs)
+            limits = np.zeros_like(self.satmap) + 1.e6
 
+            # We need to first subtract superbias and refpix signals from the
+            # original saturation limits, and then linearize them
+            # Refpix signals will vary from group to group, but only by a few
+            # ADU. So let's cheat and just use the refpix signals from group 0
+            if self.linDark.sbAndRefpix is not None:
+                lin_satmap = unlinearize.nonLinFunc(self.satmap-self.linDark.sbAndRefpix[0,0,:,:],nonlincoeffs,limits)
+            elif ((self.linDark.sbAndRefpix is None) & (self.runStep['superbias'])):
+                # If the superbias and reference pixel signal is not available
+                # but the superbias reference file is, then just use that.
+                self.readSuperbiasFile()
+                lin_satmap = unlinearize.nonLinFunc(self.satmap-self.superbias,nonlincoeffs,limits)
+            elif ((self.linDark.sbAndRefpix is None) & (self.runStep['superbias'] == False)):
+                # If superbias and refpix signal is not available and
+                # the superbias reffile is also not available, fall back to
+                # a superbias value that is roughly correct. Error in this value
+                # will cause errors in saturation flagging for the highest signal
+                # pixels.
+                manual_sb = np.zeros_like(self.satmap) + 12000.
+                lin_satmap = unlinearize.nonLinFunc(self.satmap-manual_sb,nonlincoeffs,limits)
+                
+            y = 1945
+            x = 1670
+            print('Original and linearized saturation values:',self.satmap[y,x],lin_satmap[y,x])
+            
             # Saturation flagging - to create the pixeldq extension
             # and make data ready for ramp fitting
+            # Since we subtracted the superbias and refpix signal from the
+            # saturation map prior to linearizing, we can now compare that map
+            # to lin_outramp, which also does not include superbias nor refpix
+            # signal, and is linear.
             groupdq = self.flag_saturation(lin_outramp,lin_satmap)
 
             # Create the error and groupdq extensions
@@ -158,6 +194,8 @@ class Observation():
                               err_ext = err, group_dq = groupdq, pixel_dq = pixeldq)
 
             stp.add_wcs(linearrampfile,roll=self.params['Telescope']['rotation'])
+            print("Final linearized exposure saved to:")
+            print("{}".format(linearrampfile))
             
         # If the raw version is requested, we need to unlinearize
         # the ramp
@@ -173,11 +211,13 @@ class Observation():
                     savefile = False
 
                 raw_outramp = unlinearize.unlinearize(lin_outramp, nonlincoeffs, self.satmap,
+                                                      lin_satmap,
                                                       maxiter = self.params['nonlin']['maxiter'],
                                                       accuracy = self.params['nonlin']['accuracy'],
                                                       save_accuracy_map = savefile,
                                                       accuracy_file = ofile)
                 raw_zeroframe = unlinearize.unlinearize(lin_zeroframe,nonlincoeffs,self.satmap,
+                                                        lin_satmap,
                                                         maxiter = self.params['nonlin']['maxiter'],
                                                         accuracy = self.params['nonlin']['accuracy'],
                                                         save_accuracy_map = False)
@@ -187,18 +227,18 @@ class Observation():
                 raw_zeroframe = self.add_sbAndRefPix(raw_zeroframe,self.linDark.zero_sbAndRefpix)
 
                 # Make sure all signals are < 65535
-                toohigh = raw_outramp > 65535
-                raw_outramp[toohigh] = 65535
-                toohigh = raw_zeroframe > 65535
-                raw_zeroframe[toohigh] = 65535
-            
+                raw_outramp[raw_outramp > 65535] = 65535
+                raw_zeroframe[raw_zeroframe > 65535] = 65535
+
                 # Save the raw ramp
                 rawrampfile = os.path.join(self.params['Output']['directory'],self.params['Output']['file'])
                 if self.params['Inst']['use_JWST_pipeline']:
-                    self.saveDMS(lin_outramp,lin_zeroframe,rawrampfile,mod='1b')
+                    self.saveDMS(raw_outramp,raw_zeroframe,rawrampfile,mod='1b')
                 else:
-                    self.savefits(lin_outramp,lin_zeroframe,rawrampfile,mod='1b')
+                    self.savefits(raw_outramp,raw_zeroframe,rawrampfile,mod='1b')
                 stp.add_wcs(rawrampfile)
+                print("Final raw exposure saved to")
+                print("{}".format(rawrampfile))
             else:
                 print("WARNING: raw output ramp requested, but the signal associated")
                 print("with the superbias and reference pixels is not present in")
@@ -299,6 +339,22 @@ class Observation():
             dy,dx = self.dark.data.shape[2:]
             self.satmap = np.zeros((dy,dx)) + self.params['nonlin']['limit']
 
+
+    def readSuperbiasFile(self):
+        # Read in superbias
+        if self.runStep['superbias']:
+            try:
+                self.superbias, self.superbiasheader = self.readCalFile(self.params['Reffiles']['superbias'])
+            except:
+                print(('WARNING: unable to open superbias file {}.'
+                       .format(self.params['Reffiles']['superbias'])))
+                print(("Please provide a valid file "
+                       "in the superbias entry in the parameter file."))
+                sys.exit()
+        else:
+            print('CAUTION: no superbias provided. Quitting.')
+            sys.exit()
+            
 
     def inputChecks(self):
         # Make sure the input dark has a readout pattern
@@ -837,7 +893,7 @@ class Observation():
             temp[0].header['DATAMODL'] = 'RampModel'
             temp.flush()
         
-        print("Final output integration saved to {}".format(filename))
+        #print("Final output integration saved to {}".format(filename))
         return
 
     
@@ -1161,7 +1217,9 @@ class Observation():
         obj = read_fits.Read_fits()
         obj.file = filename
         obj.read_astropy()
-        # obj now contains: obj.data,obj.zeroframe,obj.sbAndRefpix,obj.header
+        # obj now contains: obj.data,obj.sbAndRefpix,
+        #                   obj.zeroframe,obj.zero_sbAndRefpix,
+        #                   obj.header
         # Values are None for objects that don't exist
         return obj
     
@@ -1624,19 +1682,19 @@ class Observation():
 
         # Total frames per group (including skipped frames)
         framesPerGroup = self.params['Readout']['nframe']+self.params['Readout']['nskip']
+        
         # Loop over each group
         for i in range(self.params['Readout']['ngroup']):
 
             # Hold the averaged group signal
-            accumimage = np.zeros((yd,xd),dtype=np.int32)
+            accumimage = np.zeros((yd,xd))#,dtype=np.int32)
 
             # Loop over frames within each group if necessary
             for j in range(framesPerGroup):
-
                 # Frame index number in input data
                 frameindex = (i * framesPerGroup) + j
 
-                # signal only since previous frame
+                # Signal only since previous frame
                 if ndim == 3:
                     deltaframe = data[frameindex+1] - data[frameindex]
                 elif ndim == 2:
@@ -1667,14 +1725,16 @@ class Observation():
                 # simulating the A/D conversion
                 # workimage is the signal accumulated in the current frame
                 # NOTE: any NaN values will be translated into -2147483648
-                framesignal = np.around(framesignal)
-                framesignal = framesignal.astype(np.int32)
+                #framesignal = np.around(framesignal)
+                #framesignal = framesignal.astype(np.int32)
 
                 # Add the frame to the group signal image
-                if ((self.params['Readout']['nskip'] > 0) & (j < self.params['Readout']['nskip'])):
+                #if ((self.params['Readout']['nskip'] > 0) & (j >= self.params['Readout']['nskip'])):
+                if j >= self.params['Readout']['nskip']:
                     print('Averaging frame {} into group {}'.format(frameindex,i))
                     accumimage += framesignal
-                elif ((self.params['Readout']['nskip'] > 0) & (j >= self.params['Readout']['nskip'])):
+                elif j < self.params['Readout']['nskip']:
+                #elif ((self.params['Readout']['nskip'] > 0) & (j < self.params['Readout']['nskip'])):
                     print('Skipping frame {}'.format(frameindex))
 
             # divide by nframes if > 1
@@ -1717,7 +1777,7 @@ class Observation():
         framesPerGroup = self.params['Readout']['nframe']+self.params['Readout']['nskip']
         # Loop over each group
         for i in range(self.params['Readout']['ngroup']):
-            accumimage = np.zeros((yd,xd),dtype=np.int32)
+            accumimage = np.zeros((yd,xd))#,dtype=np.int32)
             
             # Loop over frames within each group if necessary
             # create each frame
@@ -1745,13 +1805,15 @@ class Observation():
                 # simulating the A/D conversion
                 # workimage is the signal accumulated in the current frame
                 # NOTE: any NaN values will be translated into -2147483648
-                framesignal = np.around(framesignal)
-                framesignal = framesignal.astype(np.int32)
+                #framesignal = np.around(framesignal)
+                #framesignal = framesignal.astype(np.int32)
 
                 # Add the frame to the group signal image
-                if ((self.params['Readout']['nskip'] > 0) & (j < self.params['Readout']['nskip'])):
+                if ((self.params['Readout']['nskip'] > 0) & (j >= self.params['Readout']['nskip'])):
                     print('Averaging frame {} into group {}'.format(frameindex,i))
                     accumimage += framesignal
+                elif ((self.params['Readout']['nskip'] > 0) & (j < self.params['Readout']['nskip'])):
+                    print('Skipping frame {}'.format(frameindex))
 
             # divide by nframes if > 1
             if self.params['Readout']['nframe'] > 1:
