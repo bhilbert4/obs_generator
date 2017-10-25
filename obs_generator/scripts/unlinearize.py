@@ -9,7 +9,7 @@ input ramp.
 import sys
 import numpy as np
 
-def unlinearize(image,coeffs,sat,maxiter=10,accuracy=0.000001,robberto=False
+def unlinearize(image,coeffs,sat,lin_satmap,maxiter=10,accuracy=0.000001,robberto=False
                 ,save_accuracy_map=False,accuracy_file='unlinearize_no_convergence.fits'):
     # Insert non-linearity into the linear synthetic sources
 
@@ -20,12 +20,16 @@ def unlinearize(image,coeffs,sat,maxiter=10,accuracy=0.000001,robberto=False
         print("but input saturation map shape is {}".format(sat.shape))
         sys.exit()
 
+    # REWORK SO THAT THE LINARIZED SATURATION MAP IS AN INPUT
+    # RATHER THAN BEING CREATED HERE. THIS IS BECAUSE THE SUPERBIAS
+    # AND REFPIX SIGNALS MUST BE SUBTRACTED BEFORE LINEARIZING
+    # THE ORIGINAL RAW SATURATION MAP
     # Sat is the original saturation map data for non-linear ramps. 
     # Translate to saturation maps for the linear ramps here so 
     # that we can pay attention only to non-saturated pixels in
     # the input linear image. Do this by applying the standard
     # linearity correction to the saturation map
-    lin_satmap = nonLinFunc(sat,coeffs,sat)
+    #lin_satmap = nonLinFunc(sat,coeffs,sat)
 
     # Find pixels with "good" signals, to have the nonlin applied. 
     # Negative pix or pix with signals above the requested max 

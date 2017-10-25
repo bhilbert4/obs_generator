@@ -61,6 +61,7 @@ class Read_fits():
         self.data = None
         self.zeroframe = None
         self.sbAndRefpix = None
+        self.zero_sbAndRefpix = None
         for i in range(len(h)):
             name = h[i].name
             if name == 'SCI':
