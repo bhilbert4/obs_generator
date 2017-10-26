@@ -1643,8 +1643,11 @@ class Observation():
 
         # If a ramp is given, create a -1st frame that is all zeros
         # so that we can create deltaframes for all frames later
+        # This should be the case only for data containing
+        # moving targets.
         if ndim == 3:
-            data = np.vstack(np.zeros((1,yd,xd)),data)
+            print('moving target data shape',data.shape,yd,xd)
+            data = np.vstack((np.zeros((1,yd,xd)),data))
             
         outramp = np.zeros((self.params['Readout']['ngroup'],yd,xd),dtype=np.float)
         #totalsignalimage = np.zeros((yd,xd),dtype=np.float)
@@ -2025,7 +2028,7 @@ class Observation():
             self.params['Output']['file'] += '.fits'
             
         # check mode: 
-        possibleModes = ['imaging','wfss']
+        possibleModes = ['imaging','wfss','moving_target']
         self.params['Inst']['mode'] = self.params['Inst']['mode'].lower()
         if self.params['Inst']['mode'] in possibleModes:
             pass
