@@ -104,7 +104,11 @@ class Read_fits():
         #zeros, then set it to None here
         #self.zeroframe = h.zeroframe
         if np.all(h.zeroframe == 0):
+            print("Zeroframe in {}".format(self.file))
+            print("All zeros. Returning None.")
             self.zeroframe = None
+        else:
+            self.zeroframe = h.zeroframe
         
         self.sbAndRefpix = None
             
