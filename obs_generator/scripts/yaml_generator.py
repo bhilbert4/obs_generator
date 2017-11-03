@@ -751,7 +751,7 @@ class SimInput:
             f.write('  unsigned: True   #Output unsigned integers? (0-65535 if true. -32768 to 32768 if false)\n')
             f.write('  dmsOrient: True    #Output in DMS orientation (vs. fitswriter orientation).\n')
             f.write('  program_number: {}    #Program Number\n'.format(input['ProposalID']))
-            f.write('  title: {}   #Program title\n'.format(input['Title']))
+            f.write('  title: {}   #Program title\n'.format(input['Title'].replace(':',',')))
             f.write('  PI_Name: {}  #Proposal PI Name\n'.format(input['PI_Name']))
             f.write('  Proposal_category: {}  #Proposal category\n'.format(input['Proposal_category']))
             f.write('  Science_category: {}  #Science category\n'.format(input['Science_category']))

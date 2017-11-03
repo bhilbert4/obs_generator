@@ -14,7 +14,7 @@ import gwcs
 from jwst.outlier_detection import outlier_detection
 from jwst.assign_wcs import AssignWcsStep
 from jwst.datamodels import container
-import set_telescope_pointing_separated as stp
+from . import set_telescope_pointing_separated as stp
 
 
 class Blot():
@@ -125,6 +125,10 @@ class Blot():
         # parity is always -1 for nircam
         parity = -1
 
+        # Name of temporary file output for set_telescope_pointing
+        # to work on
+        shellname = 'temp_wcs_container.fits'
+        
         blist = []
         for (det,ra,dec,roll) in \
             zip(self.detector,self.center_ra,\
@@ -134,11 +138,11 @@ class Blot():
 
             # create datamodel with appropriate metadata
             bmodel = self.make_model(det,ra,dec,v2ref,v3ref,v3ang,parity,input_pav3,filter,pupil)
-            shellname = 'wcs_model_to_blot_to_{}_{}_{}_{}.fits'.format(det,ra,dec,roll)
+            #shellname = 'wcs_model_to_blot_to_{}_{}_{}_{}.fits'.format(det,ra,dec,roll)
             bmodel.save(shellname,overwrite=True)
-
-            tmpname = 'wcs_model_to_blot_to_BASEMODEL_{}_{}_{}_{}.fits'.format(det,ra,dec,roll)
-            bmodel.save(tmpname,overwrite=True)
+            
+            #tmpname = 'wcs_model_to_blot_to_BASEMODEL_{}_{}_{}_{}.fits'.format(det,ra,dec,roll)
+            #bmodel.save(tmpname,overwrite=True)
             
             # use set_telescope_pointing to compute local roll
             # angle and PC matrix
@@ -151,8 +155,8 @@ class Blot():
             dist_reffile = [s for s in self.distfiles if det in s][0]
             bmodel = AssignWcsStep.call(bmodel,override_distortion=dist_reffile)
 
-            tmpname = 'wcs_model_to_blot_to_ASSIGNWCS_{}_{}_{}_{}.fits'.format(det,ra,dec,roll)
-            bmodel.save(tmpname,overwrite=True)
+            #tmpname = 'wcs_model_to_blot_to_ASSIGNWCS_{}_{}_{}_{}.fits'.format(det,ra,dec,roll)
+            #bmodel.save(tmpname,overwrite=True)
 
             # Add to the list of data model instances to blot to
             blist.append(bmodel)
@@ -169,8 +173,9 @@ class Blot():
         for (bltted,det,ra,dec,roll) in \
             zip(blotted_datamodels,self.detector,self.center_ra,\
                 self.center_dec,self.pav3):
-            outname = 'blotted_from_{}_to_{}_{}_{}_{}.fits'.format(outbase,det,ra,dec,roll)
-            bltted.save(outname)
+            if self.outfile is None:
+                self.outfile = 'blotted_from_{}_to_{}_{}_{}_{}.fits'.format(outbase,det,ra,dec,roll)
+            bltted.save(self.outfile)
 
 
     def get_siaf_info(self,detname):
