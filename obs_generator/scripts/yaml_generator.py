@@ -14,6 +14,9 @@ Optional inputs:
 
 output_dir - Directory into which the output yaml files are written
 
+simdata_output_dir - Directory to place in the output_directory field of the yaml files.
+                     This is the directory where the simulated ramps will be saved.
+
 table_file - Ascii table containing observation info. This is the 
              output from apt_inputs.py Use this if you are
              not providing xml and pointing files from APT.
@@ -69,6 +72,7 @@ July 2017 - V0: Initial version. Bryan Hilbert
 '''
 
 import sys, os
+import imp
 from glob import glob
 from copy import deepcopy
 import argparse
@@ -77,7 +81,7 @@ from astropy.time import Time,TimeDelta
 from astropy.table import Table
 from astropy.io import ascii
 #sys.path.append(os.getcwd())
-import apt_inputs
+from . import apt_inputs
     
 
 class SimInput:
@@ -88,8 +92,37 @@ class SimInput:
         self.siaf = None
         self.reffile_setup()
         self.output_dir = './'
-
+        self.table_file = None
+        self.use_nonstsci_names = False
+        self.subarray_def_file = 'config'
+        self.readpatt_def_file = 'config'
+        self.crosstalk = 'config'
+        self.filtpupil_pairs = 'config'
+        self.fluxcal = 'config'
+        self.dq_init_config = 'config'
+        self.saturation_config = 'config'
+        self.superbias_config = 'config'
+        self.refpix_config = 'config'
+        self.linearity_config = 'config'
+        self.observation_table = None
+        self.use_JWST_pipeline = True
+        self.use_linearized_darks = False
+        self.simdata_output_dir = './'
         
+        # Prepare to find files listed as 'config'
+        self.modpath = imp.find_module('obs_generator')[1]
+        self.configfiles = {}
+        self.configfiles['subarray_def_file'] = 'NIRCam_subarray_definitions.list'
+        self.configfiles['fluxcal'] = 'NIRCam_zeropoints.list'
+        self.configfiles['filtpupil_pairs'] = 'nircam_filter_pupil_pairings.list'
+        self.configfiles['readpatt_def_file'] = 'nircam_read_pattern_definitions.list'
+        self.configfiles['crosstalk'] = 'xtalk20150303g0.errorcut.txt'
+        self.configfiles['dq_init_config'] = 'dq_init.cfg'
+        self.configfiles['saturation_config'] = 'saturation.cfg'
+        self.configfiles['superbias_config'] = 'superbias.cfg'
+        self.configfiles['refpix_config'] = 'refpix.cfg'
+        self.configfiles['linearity_config'] = 'linearity.cfg'
+
         
     def create_inputs(self):
         # Use full paths for inputs
@@ -225,36 +258,62 @@ class SimInput:
         self.pointing_file = os.path.abspath(self.pointing_file)
         self.siaf = os.path.abspath(self.siaf)
         self.output_dir = os.path.abspath(self.output_dir)
+        self.simdata_output_dir = os.path.abspath(self.simdata_output_dir)
         if self.table_file is not None:
             self.table_file = os.path.abspath(self.table_file)
-        self.subarray_def_file = self.set_config(self.subarray_def_file,'NIRCam_subarray_definitions.list')
-        self.readpatt_def_file = self.set_config(self.readpatt_def_file,'nircam_read_pattern_definitions.list')
-        self.filtpupil_pairs = self.set_config(self.filtpupil_pairs,'nircam_filter_pupil_pairings.list')
-        self.mag15counts = self.set_config(self.mag15counts,'nircam_mag15_countrates.list')
-        self.fluxcal = self.set_config(self.fluxcal,'NIRCam_zeropoints.list')
-        self.dq_init_config = self.set_config(self.dq_init_config,'dq_init.cfg')
-        self.refpix_config = self.set_config(self.refpix_config,'refpix.cfg')
-        self.saturation_config = self.set_config(self.saturation_config,'saturation.cfg')
-        self.superbias_config = self.set_config(self.superbias_config,'superbias.cfg')
-        self.linearity_config = self.set_config(self.linearity_config,'dq_init.cfg')
+        #self.subarray_def_file = self.set_config(self.subarray_def_file,'NIRCam_subarray_definitions.list')
+        #self.readpatt_def_file = self.set_config(self.readpatt_def_file,'nircam_read_pattern_definitions.list')
+        #self.filtpupil_pairs = self.set_config(self.filtpupil_pairs,'nircam_filter_pupil_pairings.list')
+        ##self.mag15counts = self.set_config(self.mag15counts,'nircam_mag15_countrates.list')
+        #self.fluxcal = self.set_config(self.fluxcal,'NIRCam_zeropoints.list')
+        #self.dq_init_config = self.set_config(self.dq_init_config,'dq_init.cfg')
+        #self.refpix_config = self.set_config(self.refpix_config,'refpix.cfg')
+        #self.saturation_config = self.set_config(self.saturation_config,'saturation.cfg')
+        #self.superbias_config = self.set_config(self.superbias_config,'superbias.cfg')
+        #self.linearity_config = self.set_config(self.linearity_config,'dq_init.cfg')
+        #if self.observation_table is not None:
+        #    self.observation_table = os.path.abspath(self.observation_table)
+        #if self.crosstalk not in [None,'dist']:
+        #    self.crosstalk = os.path.abspath(self.crosstalk)
+        #elif self.crosstalk == 'dist':
+        #    self.crosstalk = os.path.join(os.path.dirname(os.path.realpath('yaml_generator.py')),'config/xtalk20150303g0.errorcut.txt')
+        self.subarray_def_file = self.set_config(self.subarray_def_file,'subarray_def_file')
+        self.readpatt_def_file = self.set_config(self.readpatt_def_file,'readpatt_def_file')
+        self.filtpupil_pairs = self.set_config(self.filtpupil_pairs,'filtpupil_pairs')
+        self.fluxcal = self.set_config(self.fluxcal,'fluxcal')
+        self.dq_init_config = self.set_config(self.dq_init_config,'dq_init_config')
+        self.refpix_config = self.set_config(self.refpix_config,'refpix_config')
+        self.saturation_config = self.set_config(self.saturation_config,'saturation_config')
+        self.superbias_config = self.set_config(self.superbias_config,'superbias_config')
+        self.linearity_config = self.set_config(self.linearity_config,'dq_init_config')
         if self.observation_table is not None:
             self.observation_table = os.path.abspath(self.observation_table)
-        if self.crosstalk not in [None,'dist']:
+        if self.crosstalk not in [None,'config']:
             self.crosstalk = os.path.abspath(self.crosstalk)
-        elif self.crosstalk == 'dist':
-            self.crosstalk = os.path.join(os.path.dirname(os.path.realpath('yaml_generator.py')),'config/xtalk20150303g0.errorcut.txt')
+        elif self.crosstalk == 'config':
+            self.crosstalk = os.path.join(self.modpath,'config',self.configfiles['crosstalk'])     
             
-            
-    def set_config(self,prop,defaultval=None):
+    #def set_config(self,prop,defaultval=None):
+    #    # If a given file is listed as 'config'
+    #    # then set it in the yaml output as in
+    #    # the config subdirectory
+    #    if prop not in ['config']:
+    #        prop = os.path.abspath(prop)
+    #    elif prop == 'config':
+    #        prop = os.path.join(os.path.dirname(os.path.realpath('yaml_generator.py')),'config/',defaultval)
+    #    return prop
+
+    def set_config(self,file,prop):
         # If a given file is listed as 'config'
         # then set it in the yaml output as in
         # the config subdirectory
-        if prop not in ['config']:
-            prop = os.path.abspath(prop)
-        elif prop == 'config':
-            prop = os.path.join(os.path.dirname(os.path.realpath('yaml_generator.py')),'config/',defaultval)
-        return prop
+        if file.lower() not in ['config']:
+            file = os.path.abspath(file)
+        elif file.lower() == 'config':
+            file = os.path.join(self.modpath,'config',self.configfiles[prop])
+        return file
 
+    
     def add_catalogs(self):
         # Add list(s) of source catalogs to table
         self.info['point_source'] = [None] * len(self.info['Module'])
@@ -583,7 +642,8 @@ class SimInput:
             outtf = True
             outfile = input['observation_id'] + '_' + input['detector'] + '_' + input[filtkey] + '_uncal.fits'
             yamlout = input['observation_id'] + '_' + input['detector'] + '_' + input[filtkey] + '.yaml'
-            
+
+        yamlout = os.path.join(self.output_dir,yamlout)
         with open(yamlout,'w') as f:
             f.write('Inst:\n')
             f.write('  instrument: {}          #Instrument name\n'.format('NIRCam'))
@@ -615,7 +675,7 @@ class SimInput:
             f.write('  linearity: {}    #linearity correction coefficients\n'.format(input['linearity']))
             f.write('  saturation: {}    #well depth reference files\n'.format(input['saturation']))
             f.write('  gain: {} #Gain map\n'.format(input['gain']))
-            f.write('  phot: {}  #File with list of all filters and associated quantum yield values and countrates for mag 15 star\n'.format(self.mag15counts))
+            #f.write('  phot: {}  #File with list of all filters and associated quantum yield values and countrates for mag 15 star\n'.format(self.mag15counts))
             f.write('  pixelflat: None \n')
             f.write('  illumflat: None                               #Illumination flat field file\n')
             f.write('  astrometric: {}  #Astrometric distortion file (asdf)\n'.format(input['astrometric']))
@@ -682,7 +742,7 @@ class SimInput:
             f.write('\n')
             f.write('Output:\n')
             #f.write('  use_stsci_output_name: {} #Output filename should follow STScI naming conventions (True/False)\n'.format(outtf))
-            f.write('  directory: {}  #Output directory\n'.format(self.output_dir))
+            f.write('  directory: {}  #Output directory\n'.format(self.simdata_output_dir))
             f.write('  file: {}   #Output filename\n'.format(outfile))
             f.write('  format: DMS          #Output file format Options: DMS, SSR(not yet implemented)\n')
             f.write('  save_intermediates: False   #Save intermediate products separately (point source image, etc)\n')
@@ -828,7 +888,7 @@ class SimInput:
         parser.add_argument("--readpatt_def_file",help='Ascii file containing readout pattern definitions',default='config')
         parser.add_argument("--crosstalk",help="Crosstalk coefficient file",default='config')
         parser.add_argument("--filtpupil_pairs",help="List of paired filter/pupil elements",default='config')
-        parser.add_argument("--mag15counts",help="File with list of mag 15 countrates per filter",default='config')
+        #parser.add_argument("--mag15counts",help="File with list of mag 15 countrates per filter",default='config')
         parser.add_argument("--fluxcal",help="File with zeropoints per filter",default='config')
         parser.add_argument("--dq_init_config",help="DQ Initialization config file",default='config')
         parser.add_argument("--saturation_config",help="Saturation config file",default='config')
@@ -838,6 +898,7 @@ class SimInput:
         parser.add_argument("--observation_table",help="Table file containing epoch start times, telescope roll angles, catalogs for each observation",default=None)
         parser.add_argument("--use_JWST_pipeline",help='True/False',action='store_true')
         parser.add_argument("--use_linearized_darks",help='True/False',action='store_true')
+        parser.add_argument("--simdata_output_dir",help='Output directory for simulated exposure files',default='./')
         return parser
     
 
