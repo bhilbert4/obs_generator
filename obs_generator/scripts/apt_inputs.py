@@ -47,8 +47,8 @@ from astropy.table import Table, Column
 from astropy.io import ascii
 import numpy as np
 import yaml
-import rotations
-import set_telescope_pointing_separated as set_telescope_pointing
+from . import rotations
+from . import set_telescope_pointing_separated as set_telescope_pointing
 
 class AptInput:
     def __init__(self):
@@ -731,7 +731,8 @@ class AptInput:
     
         #loop over entries in dict and duplicate by the
         #number of dither positions  
-        keys = np.array(indict.keys())
+        #keys = np.array(indict.keys())
+        keys = indict.keys()
         for i in range(len(indict['PrimaryDithers'])):
             #entry = np.array([item[i] for item in dict.values()])
             arr = np.array([item[i] for item in indict.values()])
